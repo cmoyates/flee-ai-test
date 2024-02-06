@@ -1,12 +1,12 @@
 # Flee AI Test
 
-This is a test project I've put together to let others try interacting with and AI for a game I'm working on.
+This is a test project I've put together to let others try interacting with an AI for a game I'm working on.
 
-The behavior is supposed to resemble that of the bug / food things from [Rain World](https://store.steampowered.com/app/312520/Rain_World/), however I have never played Rain World, so I'm just kind of guessing.
+The behavior is supposed to resemble that of the bug / food things from [Rain World](https://store.steampowered.com/app/312520/Rain_World/). However, I have never played Rain World, so I'm just kind of guessing. In the game this AI will control a creature that the player will hunt down to get points.
 
 ## TODO
 
-- [x] Implement "Fleeing" behavior (Make the agent head away from the player in the closest unobstructed direction)
+- [x] Implement "Fleeing" behavior (make the agent head away from the player in the closest unobstructed direction)
   - [x] Implement basic [fleeing steering behavior](https://www.youtube.com/watch?v=Q4MU7pkDYmQ)
   - [x] Implement [directional weighting](https://youtu.be/6BrZryMz-ac?t=115)
     - [x] Use raycasts to check when a direction is "obstructed"
