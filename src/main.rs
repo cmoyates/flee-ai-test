@@ -1,9 +1,11 @@
+mod ai;
 mod collisions;
 mod level;
 
 use std::f32::consts::PI;
 
 use ::bevy::prelude::*;
+use ai::flee::wander;
 use bevy::{app::AppExit, window::PresentMode};
 use collisions::{line_intersect, s_collision, CollisionPlugin};
 use level::{generate_level_polygons, Polygon};
@@ -67,6 +69,8 @@ pub struct GizmosVisible {
 pub const PLAYER_MAX_SPEED: f32 = 5.0;
 pub const PLAYER_STEERING_SCALE: f32 = 0.1;
 
+pub const FLEE_AI_MAX_SPEED: f32 = 3.0;
+
 #[derive(Component)]
 pub struct Physics {
     pub prev_position: Vec2,
@@ -82,6 +86,9 @@ pub struct Player {}
 #[derive(Component)]
 pub struct FleeAI {
     pub dir_weights: [f32; 16],
+    pub wander_angle: f32,
+    pub color: Color,
+    pub blend: f32,
 }
 
 pub fn s_init(mut commands: Commands) {
@@ -114,13 +121,16 @@ pub fn s_init(mut commands: Commands) {
         Transform::from_translation(Vec3::new(100.0, 100.0, 0.0)),
         Physics {
             prev_position: Vec2::ZERO,
-            velocity: Vec2::ZERO,
+            velocity: Vec2::X,
             acceleration: Vec2::ZERO,
             radius: 8.0,
             normal: Vec2::ZERO,
         },
         FleeAI {
             dir_weights: [0.0; 16],
+            wander_angle: PI / 2.0,
+            color: Color::GREEN,
+            blend: 1.0,
         },
     ));
 }
@@ -192,6 +202,7 @@ pub fn s_flee_ai_movement(
     level: Res<Level>,
     mut gizmos: Gizmos,
     gizmos_visible: Res<GizmosVisible>,
+    time: Res<Time>,
 ) {
     for (mut ai_transform, mut ai_physics, mut ai_data) in flee_ai_query.iter_mut() {
         // Check if the AI can see the player
@@ -221,23 +232,39 @@ pub fn s_flee_ai_movement(
             can_see_player
         };
 
+        let distance = (player_pos.position - ai_transform.translation.xy()).length();
+        let max_distance = 400.0;
+        let min_distance = 200.0;
+        let blend = if !can_see_player {
+            (ai_data.blend + time.delta_seconds()).min(1.0)
+        } else {
+            ((distance - min_distance) / (max_distance - min_distance)).max(0.0)
+        };
+
+        ai_data.color = Color::rgb(1.0 - blend, blend, 0.0);
+
         if gizmos_visible.visible {
-            let color = if !can_see_player {
-                Color::GREEN
-            } else {
-                Color::RED
-            };
-
-            gizmos.line_2d(ai_transform.translation.xy(), player_pos.position, color);
-        }
-
-        if !can_see_player {
-            continue;
+            gizmos.line_2d(
+                ai_transform.translation.xy(),
+                player_pos.position,
+                ai_data.color,
+            );
         }
 
         ai_physics.prev_position = ai_transform.translation.xy();
 
-        let mut flee_dir = -(player_pos.position - ai_physics.prev_position).normalize_or_zero();
+        let flee_dir = -(player_pos.position - ai_physics.prev_position).normalize_or_zero();
+
+        let wander_dir = wander(
+            &ai_physics.velocity,
+            &ai_transform.translation.xy(),
+            &mut gizmos,
+            &mut ai_data.wander_angle,
+            gizmos_visible.visible,
+            blend,
+        );
+
+        let blended_dir = flee_dir.lerp(wander_dir, blend);
 
         // Update dir weights
         {
@@ -245,14 +272,14 @@ pub fn s_flee_ai_movement(
 
             for i in 0..16 {
                 let dir = Vec2::new(angle.cos(), angle.sin());
-                let weight = dir.dot(flee_dir);
+                let weight = dir.dot(blended_dir);
                 ai_data.dir_weights[i] = weight;
                 angle += PI / 8.0;
             }
         }
 
         // Get the dir with the highest weight that's not obstructed
-        flee_dir = {
+        let actual_dir = {
             // Get an array of ints 0 - 15
             let mut dir_indices: Vec<usize> = (0..16).collect();
 
@@ -264,7 +291,7 @@ pub fn s_flee_ai_movement(
             });
 
             // Find the first non-obstructed dir
-            let mut flee_dir = Vec2::ZERO;
+            let mut actual_dir = Vec2::ZERO;
 
             for i in dir_indices {
                 let angle = i as f32 * PI / 8.0;
@@ -292,15 +319,15 @@ pub fn s_flee_ai_movement(
                 }
 
                 if !obstructed {
-                    flee_dir = dir;
+                    actual_dir = dir;
                     break;
                 }
             }
 
-            flee_dir
+            actual_dir
         };
 
-        let desired_velocity = flee_dir * PLAYER_MAX_SPEED;
+        let desired_velocity = actual_dir * lerp(PLAYER_MAX_SPEED, FLEE_AI_MAX_SPEED, blend);
         let steering = (desired_velocity - ai_physics.velocity) * PLAYER_STEERING_SCALE;
 
         ai_physics.acceleration = steering;
@@ -309,6 +336,8 @@ pub fn s_flee_ai_movement(
 
         ai_transform.translation.x += ai_physics.velocity.x;
         ai_transform.translation.y += ai_physics.velocity.y;
+
+        ai_data.blend = blend;
     }
 }
 
@@ -330,7 +359,7 @@ pub fn s_render(
     for (flee_ai_transform, flee_ai_physics, flee_ai_data) in flee_ai_query.iter_mut() {
         let flee_ai_pos = flee_ai_transform.translation.xy();
 
-        gizmos.circle_2d(flee_ai_pos, 8.0, Color::RED);
+        gizmos.circle_2d(flee_ai_pos, 8.0, flee_ai_data.color);
 
         // Draw the normal
         if gizmos_visible.visible {
@@ -343,7 +372,7 @@ pub fn s_render(
 
         // Draw the dir weights
         if gizmos_visible.visible {
-            gizmos.circle_2d(flee_ai_pos, 30.0, Color::WHITE);
+            gizmos.circle_2d(flee_ai_pos, 30.0, Color::WHITE.with_a(0.2));
 
             let mut angle: f32 = 0.0;
 
@@ -385,4 +414,8 @@ pub fn s_render(
             );
         }
     }
+}
+
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
 }
