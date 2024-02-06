@@ -1,7 +1,7 @@
 use bevy::{math::Vec2, render::color::Color};
 use rand::Rng;
 
-use crate::collisions::line_intersect;
+use crate::utils::line_intersect;
 
 pub struct Polygon {
     pub points: Vec<Vec2>,
