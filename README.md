@@ -2,6 +2,8 @@
 
 This is a test project I've put together to let others try interacting with and AI for a game I'm working on.
 
+The bahavior is supposed to resemble that of the bug / food things from [Rain World](https://store.steampowered.com/app/312520/Rain_World/), however I have never played Rain World, so I'm just kind of guessing.
+
 ## TODO
 
 - [x] Implement "Fleeing" behavior (Make the agent head away from the player in the closest unobstructed direction)
@@ -15,3 +17,4 @@ This is a test project I've put together to let others try interacting with and 
   - [x] If LOS, blend toward flee the closer the player gets
   - [x] If no LOS, just wander
 - [ ] Refactor all flee AI stuff into it's own file
+- [ ] Fix corner collision bounce bug
