@@ -4,12 +4,9 @@ mod level;
 use std::f32::consts::PI;
 
 use ::bevy::prelude::*;
-use bevy::{app::AppExit, gizmos, render::color, window::PresentMode};
+use bevy::{app::AppExit, window::PresentMode};
 use collisions::{line_intersect, s_collision, CollisionPlugin};
 use level::{generate_level_polygons, Polygon};
-
-const FRAMERATE: u32 = 60;
-const FRAME_DURATION_SECS: f32 = 1.0 / FRAMERATE as f32;
 
 fn main() {
     App::new()
@@ -47,6 +44,9 @@ fn main() {
 #[derive(Resource)]
 pub struct Level {
     pub polygons: Vec<Polygon>,
+    pub grid_size: f32,
+    pub size: Vec2,
+    pub half_size: Vec2,
 }
 
 #[derive(Resource)]
@@ -87,10 +87,13 @@ pub struct FleeAI {
 pub fn s_init(mut commands: Commands) {
     let grid_size = 32.0;
 
-    let level_polygons = generate_level_polygons(grid_size);
+    let (level_polygons, size, half_size) = generate_level_polygons(grid_size);
 
     commands.insert_resource(Level {
         polygons: level_polygons,
+        grid_size,
+        size,
+        half_size,
     });
 
     commands.spawn(Camera2dBundle::default());
@@ -316,28 +319,12 @@ pub fn s_render(
     mut flee_ai_query: Query<(&Transform, &Physics, &FleeAI)>,
     gizmos_visible: Res<GizmosVisible>,
 ) {
+    // Draw the level polygons
     for polygon in &level.polygons {
         gizmos.linestrip_2d(
             polygon.points.iter().cloned().collect::<Vec<Vec2>>(),
             polygon.color,
         );
-    }
-
-    for (player_transform, player_physics) in player_query.iter_mut() {
-        gizmos.circle_2d(
-            player_transform.translation.xy(),
-            player_physics.radius,
-            Color::WHITE,
-        );
-
-        // Draw the normal
-        if gizmos_visible.visible {
-            gizmos.line_2d(
-                player_transform.translation.xy(),
-                player_transform.translation.xy() + player_physics.normal * player_physics.radius,
-                Color::WHITE,
-            );
-        }
     }
 
     for (flee_ai_transform, flee_ai_physics, flee_ai_data) in flee_ai_query.iter_mut() {
@@ -379,6 +366,23 @@ pub fn s_render(
 
                 angle += std::f32::consts::PI / 8.0;
             }
+        }
+    }
+
+    for (player_transform, player_physics) in player_query.iter_mut() {
+        gizmos.circle_2d(
+            player_transform.translation.xy(),
+            player_physics.radius,
+            Color::WHITE,
+        );
+
+        // Draw the normal
+        if gizmos_visible.visible {
+            gizmos.line_2d(
+                player_transform.translation.xy(),
+                player_transform.translation.xy() + player_physics.normal * player_physics.radius,
+                Color::WHITE,
+            );
         }
     }
 }

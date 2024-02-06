@@ -11,21 +11,20 @@ pub struct Polygon {
 
 const LEVEL_DATA: &'static [u8] = include_bytes!("../assets/level.json");
 
-pub fn generate_level_polygons(grid_size: f32) -> Vec<Polygon> {
+pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
     let mut rng = rand::thread_rng();
 
     let res = std::str::from_utf8(LEVEL_DATA);
     let json_data: Vec<Vec<u32>> = serde_json::from_str(&res.unwrap()).unwrap();
 
-    let offset = Vec2::new(
-        json_data[0].len() as f32 * -grid_size / 2.0,
-        json_data.len() as f32 * grid_size / 2.0,
-    );
+    let size = Vec2::new(json_data[0].len() as f32, json_data.len() as f32);
+
+    let offset = Vec2::new(size.x * -grid_size / 2.0, size.y * grid_size / 2.0);
 
     let mut line_points: Vec<Vec2> = Vec::new();
 
-    for y in 0..json_data.len() {
-        for x in 0..json_data[y].len() {
+    for y in 0..size.y as usize {
+        for x in 0..size.x as usize {
             let tile = json_data[y][x];
 
             match tile {
@@ -54,7 +53,7 @@ pub fn generate_level_polygons(grid_size: f32) -> Vec<Polygon> {
                             .push(Vec2::new((x + 1) as f32 * grid_size, y as f32 * grid_size));
                     }
                     // Bottom edge
-                    if y == json_data.len() - 1 || json_data[y + 1][x] == 0 {
+                    if y == size.y as usize - 1 || json_data[y + 1][x] == 0 {
                         line_points
                             .push(Vec2::new(x as f32 * grid_size, (y + 1) as f32 * grid_size));
                         line_points.push(Vec2::new(
@@ -80,7 +79,7 @@ pub fn generate_level_polygons(grid_size: f32) -> Vec<Polygon> {
                             ));
 
                             // Bottom edge
-                            if y == json_data.len() - 1 || json_data[y + 1][x] == 0 {
+                            if y == size.y as usize - 1 || json_data[y + 1][x] == 0 {
                                 line_points.push(Vec2::new(
                                     x as f32 * grid_size,
                                     (y + 1) as f32 * grid_size,
@@ -111,7 +110,7 @@ pub fn generate_level_polygons(grid_size: f32) -> Vec<Polygon> {
                                 .push(Vec2::new(x as f32 * grid_size, (y + 1) as f32 * grid_size));
 
                             // Bottom edge
-                            if y == json_data.len() - 1 || json_data[y + 1][x] == 0 {
+                            if y == size.y as usize - 1 || json_data[y + 1][x] == 0 {
                                 line_points.push(Vec2::new(
                                     x as f32 * grid_size,
                                     (y + 1) as f32 * grid_size,
@@ -487,6 +486,12 @@ pub fn generate_level_polygons(grid_size: f32) -> Vec<Polygon> {
     // Separate the lines into polygons
     let mut polygons: Vec<Polygon> = Vec::new();
 
+    let container_color = Color::rgb(
+        rng.gen_range(0.0..=1.0),
+        rng.gen_range(0.0..=1.0),
+        rng.gen_range(0.0..=1.0),
+    );
+
     // While there are lines left
     while line_count > 0 {
         // Create a new polygon
@@ -557,11 +562,15 @@ pub fn generate_level_polygons(grid_size: f32) -> Vec<Polygon> {
             collision_side *= -1.0;
         }
 
-        let color = Color::rgb(
-            rng.gen_range(0.0..=1.0),
-            rng.gen_range(0.0..=1.0),
-            rng.gen_range(0.0..=1.0),
-        );
+        let color = if is_container {
+            container_color
+        } else {
+            Color::rgb(
+                rng.gen_range(0.0..=1.0),
+                rng.gen_range(0.0..=1.0),
+                rng.gen_range(0.0..=1.0),
+            )
+        };
 
         // Add the polygon to the list of polygons
         polygons.push(Polygon {
@@ -571,7 +580,7 @@ pub fn generate_level_polygons(grid_size: f32) -> Vec<Polygon> {
         });
     }
 
-    return polygons;
+    return (polygons, size, size / 2.0);
 }
 
 fn calculate_winding_order(vertices: &Vec<Vec2>) -> f32 {
