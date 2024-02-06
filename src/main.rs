@@ -383,6 +383,54 @@ pub fn s_render(
                 player_transform.translation.xy() + player_physics.normal * player_physics.radius,
                 Color::WHITE,
             );
+
+            for outer_loop_polygon in &level.polygons {
+                for i in 1..outer_loop_polygon.points.len() {
+                    let corner = outer_loop_polygon.points[i];
+
+                    let player_to_corner = corner - player_transform.translation.xy();
+                    let angle = player_to_corner.y.atan2(player_to_corner.x);
+                    let angles = [angle - 0.00001, angle + 0.00001];
+
+                    for angle in angles.iter() {
+                        let point = Vec2::new(angle.cos(), angle.sin()) * 10000.0
+                            + player_transform.translation.xy();
+
+                        let mut closest_distance = f32::MAX;
+                        let mut closest_point = Vec2::ZERO;
+
+                        for inner_loop_polygon in &level.polygons {
+                            for j in 1..inner_loop_polygon.points.len() {
+                                let start = inner_loop_polygon.points[j - 1];
+                                let end = inner_loop_polygon.points[j];
+
+                                let res = line_intersect(
+                                    start,
+                                    end,
+                                    player_transform.translation.xy(),
+                                    point,
+                                );
+
+                                if res.is_some() {
+                                    let dist_sq = (res.unwrap()
+                                        - player_transform.translation.xy())
+                                    .length_squared();
+                                    if dist_sq < closest_distance {
+                                        closest_distance = dist_sq;
+                                        closest_point = res.unwrap();
+                                    }
+                                }
+                            }
+                        }
+
+                        gizmos.line_2d(
+                            player_transform.translation.xy(),
+                            closest_point,
+                            Color::WHITE,
+                        );
+                    }
+                }
+            }
         }
     }
 }

@@ -9,7 +9,7 @@ This is a test project I've put together to let others try interacting with and 
   - [x] Implement directional weighting from [this video](https://youtu.be/6BrZryMz-ac?t=115)
     - [x] Use raycasts to check when a direction is "obstructed"
 - [ ] Implement "Hiding" behavior (Make the agent flee to a place where the player can't "see" it)
-  - [ ] Detect the players complete field of view
+  - [x] Detect the players [complete field of view](https://ncase.me/sight-and-light/)
   - [ ] Check where the closest point is that is not in the players FOV
   - [ ] Pathfind there
 - [ ] Blend between running and hiding depending on player proximity (with LOS)
