@@ -129,7 +129,8 @@ pub fn s_input(
 ) {
     let mut direction = Vec2::ZERO;
 
-    // Escape to exit
+    // Escape to exit (if not WASM)
+    #[cfg(not(target_arch = "wasm32"))]
     if keyboard_input.just_pressed(KeyCode::Escape) {
         exit.send(AppExit);
     }
