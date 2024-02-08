@@ -201,7 +201,6 @@ pub fn get_wander_dir(
         gizmos.circle_2d(wander_point, 5.0, Color::RED.with_a(blend));
         gizmos.circle_2d(wander_point, wander_radius, Color::WHITE.with_a(blend));
         gizmos.circle_2d(circle_center, 5.0, Color::GREEN.with_a(blend));
-        gizmos.circle_2d(circle_center, 15.0, Color::WHITE.with_a(blend));
     }
 
     let mut rng = rand::thread_rng();
