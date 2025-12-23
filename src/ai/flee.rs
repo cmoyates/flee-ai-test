@@ -15,6 +15,16 @@ const FLEE_MAX_SPEED: f32 = 5.0;
 
 pub const STEERING_SCALE: f32 = 0.1;
 
+// AI behavior parameters
+const AI_MAX_DETECTION_DISTANCE: f32 = 400.0;
+const AI_MIN_FLEE_DISTANCE: f32 = 200.0;
+const AI_RAYCAST_DISTANCE: f32 = 100.0;
+const AI_WANDER_RADIUS: f32 = 50.0;
+const AI_WANDER_DISPLACE_RANGE: f32 = 0.3;
+const AI_VISUALIZATION_RADIUS: f32 = 30.0;
+const AI_RENDER_RADIUS: f32 = 8.0;
+const AI_DEBUG_CIRCLE_SIZE: f32 = 5.0;
+
 pub struct FleeAIPlugin;
 
 impl Plugin for FleeAIPlugin {
@@ -43,9 +53,7 @@ pub fn s_flee_ai_movement(
         // Check if the AI can see the player
         let can_see_player = {
             let mut can_see_player = true;
-            'polygon: for i in 0..level.polygons.len() {
-                let polygon = level.polygons.get(i).unwrap();
-
+            'polygon: for polygon in &level.polygons {
                 for line_index in 1..polygon.points.len() {
                     let start = polygon.points[line_index - 1];
                     let end = polygon.points[line_index];
@@ -68,12 +76,11 @@ pub fn s_flee_ai_movement(
         };
 
         let distance = (player_pos.position - ai_transform.translation.xy()).length();
-        let max_distance = 400.0;
-        let min_distance = 200.0;
         let blend = if !can_see_player {
             (ai_data.blend + time.delta_secs()).min(1.0)
         } else {
-            ((distance - min_distance) / (max_distance - min_distance)).max(0.0)
+            ((distance - AI_MIN_FLEE_DISTANCE) / (AI_MAX_DETECTION_DISTANCE - AI_MIN_FLEE_DISTANCE))
+                .max(0.0)
         };
 
         ai_data.color = Color::srgb(1.0 - blend, blend, 0.0);
@@ -88,7 +95,7 @@ pub fn s_flee_ai_movement(
 
         ai_physics.prev_position = ai_transform.translation.xy();
 
-        let flee_dir = -(player_pos.position - ai_physics.prev_position).normalize_or_zero();
+        let flee_dir = -(player_pos.position - ai_transform.translation.xy()).normalize_or_zero();
 
         let wander_dir = get_wander_dir(
             &ai_physics.velocity,
@@ -116,13 +123,14 @@ pub fn s_flee_ai_movement(
         // Get the dir with the highest weight that's not obstructed
         let actual_dir = {
             // Get an array of ints 0 - 15
-            let mut dir_indices: Vec<usize> = (0..16).collect();
+            let mut dir_indices: [usize; 16] =
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
             // Sort the indices by the weight (descending)
             dir_indices.sort_by(|a, b| {
                 ai_data.dir_weights[*b]
                     .partial_cmp(&ai_data.dir_weights[*a])
-                    .unwrap()
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
 
             // Find the first non-obstructed dir
@@ -143,7 +151,7 @@ pub fn s_flee_ai_movement(
                             start,
                             end,
                             ai_transform.translation.xy(),
-                            ai_transform.translation.xy() + dir * 100.0,
+                            ai_transform.translation.xy() + dir * AI_RAYCAST_DISTANCE,
                         );
 
                         if res.is_some() {
@@ -186,42 +194,46 @@ pub fn get_wander_dir(
 ) -> Vec2 {
     let mut wander_point = *velocity;
     wander_point = wander_point.normalize_or_zero();
-    wander_point *= 100.0;
+    wander_point *= AI_RAYCAST_DISTANCE;
     wander_point += *position;
-
-    let wander_radius = 50.0;
 
     let velocity_angle = velocity.y.atan2(velocity.x);
 
-    let x = wander_radius * (*wander_angle + velocity_angle).cos();
-    let y = wander_radius * (*wander_angle + velocity_angle).sin();
+    let x = AI_WANDER_RADIUS * (*wander_angle + velocity_angle).cos();
+    let y = AI_WANDER_RADIUS * (*wander_angle + velocity_angle).sin();
 
     let circle_center = Vec2::new(x, y) + wander_point;
 
     if gizmos_visible {
-        gizmos.circle_2d(wander_point, 5.0, css::RED.with_alpha(blend));
-        gizmos.circle_2d(wander_point, wander_radius, css::WHITE.with_alpha(blend));
-        gizmos.circle_2d(circle_center, 5.0, css::GREEN.with_alpha(blend));
+        gizmos.circle_2d(
+            wander_point,
+            AI_DEBUG_CIRCLE_SIZE,
+            css::RED.with_alpha(blend),
+        );
+        gizmos.circle_2d(wander_point, AI_WANDER_RADIUS, css::WHITE.with_alpha(blend));
+        gizmos.circle_2d(
+            circle_center,
+            AI_DEBUG_CIRCLE_SIZE,
+            css::GREEN.with_alpha(blend),
+        );
     }
 
     let mut rng = rand::rng();
 
-    let diplace_range: f32 = 0.3;
-
-    *wander_angle += rng.random_range(-diplace_range..diplace_range);
+    *wander_angle += rng.random_range(-AI_WANDER_DISPLACE_RANGE..AI_WANDER_DISPLACE_RANGE);
 
     (circle_center - *position).normalize()
 }
 
 pub fn render_flee_ai(
-    mut flee_ai_query: Query<(&Transform, &Physics, &FleeAI)>,
+    flee_ai_query: Query<(&Transform, &Physics, &FleeAI)>,
     gizmos: &mut Gizmos,
     gizmos_visible: bool,
 ) {
-    for (flee_ai_transform, flee_ai_physics, flee_ai_data) in flee_ai_query.iter_mut() {
+    for (flee_ai_transform, flee_ai_physics, flee_ai_data) in flee_ai_query.iter() {
         let flee_ai_pos = flee_ai_transform.translation.xy();
 
-        gizmos.circle_2d(flee_ai_pos, 8.0, flee_ai_data.color);
+        gizmos.circle_2d(flee_ai_pos, AI_RENDER_RADIUS, flee_ai_data.color);
 
         // Draw the normal
         if gizmos_visible {
@@ -234,7 +246,11 @@ pub fn render_flee_ai(
 
         // Draw the dir weights
         if gizmos_visible {
-            gizmos.circle_2d(flee_ai_pos, 30.0, css::WHITE.with_alpha(0.2));
+            gizmos.circle_2d(
+                flee_ai_pos,
+                AI_VISUALIZATION_RADIUS,
+                css::WHITE.with_alpha(0.2),
+            );
 
             let mut angle: f32 = 0.0;
 
@@ -245,14 +261,10 @@ pub fn render_flee_ai(
                 .fold(0.0, |acc, &x| acc.max(x));
 
             for weight in flee_ai_data.dir_weights.iter() {
-                let color = if *weight < 0.0 {
-                    css::RED
-                } else {
-                    css::GREEN
-                };
+                let color = if *weight < 0.0 { css::RED } else { css::GREEN };
 
-                let x = angle.cos() * 30.0 * weight.abs() / max_weight;
-                let y = angle.sin() * 30.0 * weight.abs() / max_weight;
+                let x = angle.cos() * AI_VISUALIZATION_RADIUS * weight.abs() / max_weight;
+                let y = angle.sin() * AI_VISUALIZATION_RADIUS * weight.abs() / max_weight;
                 gizmos.line_2d(flee_ai_pos, flee_ai_pos + Vec2::new(x, y), color);
 
                 angle += std::f32::consts::PI / 8.0;

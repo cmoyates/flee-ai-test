@@ -34,13 +34,16 @@ fn main() {
         .add_systems(Startup, s_init)
         // Update systems
         .add_systems(Update, s_input)
-        .add_systems(Update, (s_player_movement.before(s_collision),))
+        .add_systems(Update, s_player_movement.before(s_collision))
         .add_systems(Update, s_render.after(s_collision))
         .run();
 }
 
 pub const PLAYER_MAX_SPEED: f32 = 5.0;
 pub const PLAYER_STEERING_SCALE: f32 = 0.1;
+pub const PLAYER_RADIUS: f32 = 12.0;
+pub const AI_RADIUS: f32 = 8.0;
+pub const AI_SPAWN_POSITION: Vec2 = Vec2::new(100.0, 100.0);
 
 #[derive(Resource)]
 pub struct Level {
@@ -97,19 +100,19 @@ pub fn s_init(mut commands: Commands) {
             prev_position: Vec2::ZERO,
             velocity: Vec2::ZERO,
             acceleration: Vec2::ZERO,
-            radius: 12.0,
+            radius: PLAYER_RADIUS,
             normal: Vec2::ZERO,
         },
         Player {},
     ));
 
     commands.spawn((
-        Transform::from_translation(Vec3::new(100.0, 100.0, 0.0)),
+        Transform::from_translation(AI_SPAWN_POSITION.extend(0.0)),
         Physics {
             prev_position: Vec2::ZERO,
             velocity: Vec2::X,
             acceleration: Vec2::ZERO,
-            radius: 8.0,
+            radius: AI_RADIUS,
             normal: Vec2::ZERO,
         },
         FleeAI {
@@ -186,23 +189,20 @@ pub fn s_player_movement(
 pub fn s_render(
     mut gizmos: Gizmos,
     level: Res<Level>,
-    mut player_query: Query<(&Transform, &Physics), With<Player>>,
+    player_query: Query<(&Transform, &Physics), With<Player>>,
     flee_ai_query: Query<(&Transform, &Physics, &FleeAI)>,
     gizmos_visible: Res<GizmosVisible>,
 ) {
     // Draw the level polygons
     for polygon in &level.polygons {
-        gizmos.linestrip_2d(
-            polygon.points.to_vec(),
-            polygon.color,
-        );
+        gizmos.linestrip_2d(polygon.points.iter().copied(), polygon.color);
     }
 
     // Draw the flee AI
     render_flee_ai(flee_ai_query, &mut gizmos, gizmos_visible.visible);
 
     // Draw the player
-    for (player_transform, player_physics) in player_query.iter_mut() {
+    for (player_transform, player_physics) in player_query.iter() {
         gizmos.circle_2d(
             player_transform.translation.xy(),
             player_physics.radius,

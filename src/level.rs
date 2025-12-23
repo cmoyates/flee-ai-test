@@ -14,8 +14,10 @@ const LEVEL_DATA: &[u8] = include_bytes!("../assets/level.json");
 pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
     let mut rng = rand::rng();
 
-    let res = std::str::from_utf8(LEVEL_DATA);
-    let json_data: Vec<Vec<u32>> = serde_json::from_str(res.unwrap()).unwrap();
+    let json_str =
+        std::str::from_utf8(LEVEL_DATA).expect("Failed to convert level data to UTF-8 string");
+    let json_data: Vec<Vec<u32>> =
+        serde_json::from_str(json_str).expect("Failed to parse level JSON data");
 
     let size = Vec2::new(json_data[0].len() as f32, json_data.len() as f32);
 
@@ -441,8 +443,10 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
                     .dot((line_2_start - line_2_end).normalize());
                 if dot.abs() == 1.0 {
                     // if so flag the point for removal and break out of the outer for loop
-                    point_removal_data = Some((shared_point.unwrap(), unique_points.unwrap()));
-                    break 'outer;
+                    if let (Some(shared), Some(unique)) = (shared_point, unique_points) {
+                        point_removal_data = Some((shared, unique));
+                        break 'outer;
+                    }
                 }
             }
         }

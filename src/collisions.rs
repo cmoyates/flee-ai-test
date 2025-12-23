@@ -7,6 +7,11 @@ use bevy::{
 
 use crate::{utils::line_intersect, Level, Physics};
 
+// Collision detection parameters
+const COLLISION_RAYCAST_DIR: Vec2 = Vec2::new(2.0, 1.0);
+const COLLISION_RAYCAST_DISTANCE: f32 = 10000.0;
+const COLLISION_TOUCH_THRESHOLD: f32 = 0.5;
+
 pub struct CollisionPlugin;
 
 impl Plugin for CollisionPlugin {
@@ -20,9 +25,7 @@ pub fn s_collision(mut entity_query: Query<(&mut Transform, &mut Physics)>, leve
         let mut adjustment = Vec2::ZERO;
         let mut new_normal = Vec2::ZERO;
 
-        for polygon_index in 0..level.polygons.len() {
-            let polygon = level.polygons.get(polygon_index).unwrap();
-
+        for polygon in &level.polygons {
             let mut intersect_counter = 0;
             let mut colliding_with_polygon = false;
 
@@ -36,7 +39,8 @@ pub fn s_collision(mut entity_query: Query<(&mut Transform, &mut Physics)>, leve
                         start,
                         end,
                         transform.translation.xy(),
-                        transform.translation.xy() + Vec2::new(2.0, 1.0) * 10000.0,
+                        transform.translation.xy()
+                            + COLLISION_RAYCAST_DIR * COLLISION_RAYCAST_DISTANCE,
                     );
 
                     if intersection.is_some() {
@@ -57,7 +61,8 @@ pub fn s_collision(mut entity_query: Query<(&mut Transform, &mut Physics)>, leve
                 let colliding_with_line = distance_sq <= physics.radius.powi(2);
                 colliding_with_polygon = colliding_with_polygon || colliding_with_line;
 
-                let touching_line = distance_sq <= (physics.radius + 0.5).powi(2);
+                let touching_line =
+                    distance_sq <= (physics.radius + COLLISION_TOUCH_THRESHOLD).powi(2);
 
                 if touching_line {
                     let normal_dir = (transform.translation.xy() - projection).normalize_or_zero();
