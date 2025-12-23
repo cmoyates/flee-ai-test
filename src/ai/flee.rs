@@ -184,10 +184,10 @@ pub fn get_wander_dir(
     gizmos_visible: bool,
     blend: f32,
 ) -> Vec2 {
-    let mut wander_point = velocity.clone();
+    let mut wander_point = *velocity;
     wander_point = wander_point.normalize_or_zero();
     wander_point *= 100.0;
-    wander_point += position.clone();
+    wander_point += *position;
 
     let wander_radius = 50.0;
 
@@ -210,7 +210,7 @@ pub fn get_wander_dir(
 
     *wander_angle += rng.random_range(-diplace_range..diplace_range);
 
-    return (circle_center - *position).normalize();
+    (circle_center - *position).normalize()
 }
 
 pub fn render_flee_ai(

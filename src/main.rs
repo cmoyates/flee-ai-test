@@ -193,7 +193,7 @@ pub fn s_render(
     // Draw the level polygons
     for polygon in &level.polygons {
         gizmos.linestrip_2d(
-            polygon.points.iter().cloned().collect::<Vec<Vec2>>(),
+            polygon.points.to_vec(),
             polygon.color,
         );
     }

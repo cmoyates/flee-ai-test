@@ -9,13 +9,13 @@ pub struct Polygon {
     pub color: Color,
 }
 
-const LEVEL_DATA: &'static [u8] = include_bytes!("../assets/level.json");
+const LEVEL_DATA: &[u8] = include_bytes!("../assets/level.json");
 
 pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
     let mut rng = rand::rng();
 
     let res = std::str::from_utf8(LEVEL_DATA);
-    let json_data: Vec<Vec<u32>> = serde_json::from_str(&res.unwrap()).unwrap();
+    let json_data: Vec<Vec<u32>> = serde_json::from_str(res.unwrap()).unwrap();
 
     let size = Vec2::new(json_data[0].len() as f32, json_data.len() as f32);
 
@@ -448,12 +448,10 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
         }
 
         // If there is a point to remove
-        if point_removal_data.is_some() {
-            let point_removal_data = point_removal_data.unwrap();
-
+        if let Some(point_removal_data) = point_removal_data {
             // Store the unique vertices
-            let unique_vert_1 = line_points[point_removal_data.1 .0].clone();
-            let unique_vert_2 = line_points[point_removal_data.1 .1].clone();
+            let unique_vert_1 = line_points[point_removal_data.1 .0];
+            let unique_vert_2 = line_points[point_removal_data.1 .1];
 
             // Remove the shared and unique vertices
             let mut removal_indices = vec![
@@ -477,10 +475,10 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
         }
     }
 
-    for i in 0..line_points.len() {
-        line_points[i].x += offset.x;
-        line_points[i].y *= -1.0;
-        line_points[i].y += offset.y;
+    for point in &mut line_points {
+        point.x += offset.x;
+        point.y *= -1.0;
+        point.y += offset.y;
     }
 
     // Separate the lines into polygons
@@ -498,8 +496,8 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
         let mut polygon_lines: Vec<Vec2> = Vec::new();
 
         // Add the first line to the polygon
-        polygon_lines.push(line_points[0].clone());
-        polygon_lines.push(line_points[1].clone());
+        polygon_lines.push(line_points[0]);
+        polygon_lines.push(line_points[1]);
 
         // Remove the first line from the list of lines
         line_points.remove(0);
@@ -508,19 +506,21 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
         // Decrement the line count
         line_count -= 1;
 
-        let start_vert = polygon_lines[0].clone();
-        let mut current_vert = polygon_lines[polygon_lines.len() - 1].clone();
+        let start_vert = polygon_lines[0];
+        let mut current_vert = polygon_lines[polygon_lines.len() - 1];
 
         // While the polygon is not closed
         while start_vert != current_vert {
-            for i in 0..line_count {
-                let line_start = line_points[i * 2].clone();
-                let line_end = line_points[i * 2 + 1].clone();
+            let mut found = false;
+            let mut i = 0;
+            while i < line_count {
+                let line_start = line_points[i * 2];
+                let line_end = line_points[i * 2 + 1];
 
                 // If the line starts at the current vertex
                 if line_start == current_vert {
                     // Add the line to the polygon
-                    polygon_lines.push(line_end.clone());
+                    polygon_lines.push(line_end);
 
                     // Remove the line from the list of lines
                     line_points.remove(i * 2);
@@ -532,13 +532,14 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
                     // Set the current vertex to the end of the line
                     current_vert = line_end;
 
-                    // Break out of the for loop
+                    // Break out of the while loop
+                    found = true;
                     break;
                 }
                 // If the line ends at the current vertex
                 else if line_end == current_vert {
                     // Add the line to the polygon
-                    polygon_lines.push(line_start.clone());
+                    polygon_lines.push(line_start);
 
                     // Remove the line from the list of lines
                     line_points.remove(i * 2);
@@ -550,9 +551,15 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
                     // Set the current vertex to the start of the line
                     current_vert = line_start;
 
-                    // Break out of the for loop
+                    // Break out of the while loop
+                    found = true;
                     break;
+                } else {
+                    i += 1;
                 }
+            }
+            if !found {
+                break;
             }
         }
 
@@ -580,10 +587,10 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
         });
     }
 
-    return (polygons, size, size / 2.0);
+    (polygons, size, size / 2.0)
 }
 
-fn calculate_winding_order(vertices: &Vec<Vec2>) -> f32 {
+fn calculate_winding_order(vertices: &[Vec2]) -> f32 {
     let mut sum = 0.0;
 
     for i in 0..vertices.len() {
@@ -595,7 +602,7 @@ fn calculate_winding_order(vertices: &Vec<Vec2>) -> f32 {
     sum
 }
 
-fn point_in_polygon(polygon_lines: &Vec<Vec2>, point: Vec2) -> bool {
+fn point_in_polygon(polygon_lines: &[Vec2], point: Vec2) -> bool {
     let test_line_start = point;
     let test_line_end = point + Vec2::new(2.0, 1.0) * 1000.0;
 
@@ -612,5 +619,5 @@ fn point_in_polygon(polygon_lines: &Vec<Vec2>, point: Vec2) -> bool {
         }
     }
 
-    return intersect_counter % 2 == 1;
+    intersect_counter % 2 == 1
 }

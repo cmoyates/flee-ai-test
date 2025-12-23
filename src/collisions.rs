@@ -117,12 +117,12 @@ pub fn find_projection(start: Vec2, end: Vec2, point: Vec2, radius: f32) -> (f32
 
     let dist = (point - projection_point).length_squared();
 
-    return (dist, projection_point);
+    (dist, projection_point)
 }
 
 pub fn side_of_line_detection(line_start: Vec2, line_end: Vec2, point: Vec2) -> f32 {
     let determinant = (line_end.x - line_start.x) * (point.y - line_start.y)
         - (line_end.y - line_start.y) * (point.x - line_start.x);
 
-    return determinant.signum();
+    determinant.signum()
 }
