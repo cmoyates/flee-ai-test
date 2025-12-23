@@ -1,0 +1,214 @@
+---
+description: Application dependency stack, versions, and best practices for flee-ai-test
+globs:
+alwaysApply: true
+---
+
+# Dependency Stack and Best Practices
+
+This document outlines the dependency stack for the flee-ai-test project, including versions and best practices.
+
+## Rust Edition
+
+- **Edition**: `2021`
+- **Version**: `0.1.0`
+
+## Core Dependencies
+
+### Bevy 0.12.1
+
+**Purpose**: Game engine and ECS (Entity Component System) framework
+
+**Usage in Project**:
+- ECS architecture (Components, Resources, Systems, Plugins)
+- 2D rendering with Gizmos
+- Input handling (keyboard)
+- Window management
+- Time management
+- Camera systems
+
+**Best Practices**:
+- Use Bevy's plugin system (`Plugin` trait) to organize systems
+- Leverage Bevy's system scheduling with `.before()` and `.after()` for ordering
+- Use `Res<T>` for read-only resources and `ResMut<T>` for mutable resources
+- Prefer `Query` with filters (`With<T>`, `Without<T>`) for efficient entity queries
+- Use `Commands` for spawning entities and inserting resources
+- Gizmos are useful for debugging visualization (toggle with `GizmosVisible` resource)
+- Bevy 0.12.x uses the new system scheduling API - prefer `.add_systems()` over `.add_system()`
+
+**Version Notes**:
+- Bevy 0.12.1 is a stable release in the 0.12.x series
+- Breaking changes are common between minor versions (0.11 → 0.12)
+- Check [Bevy's migration guides](https://bevyengine.org/learn/migration-guides/) when upgrading
+- Consider pinning exact version for production builds to ensure reproducible builds
+
+**Example Usage**:
+```rust
+use bevy::prelude::*;
+
+#[derive(Component)]
+pub struct Player {}
+
+pub fn s_player_movement(
+    mut player_query: Query<&mut Transform, With<Player>>,
+) {
+    // System implementation
+}
+```
+
+### rand 0.8.5
+
+**Purpose**: Random number generation
+
+**Usage in Project**:
+- Procedural color generation for level polygons
+- AI wander behavior angle displacement
+- Uses `thread_rng()` for thread-local random number generation
+
+**Best Practices**:
+- Use `rand::thread_rng()` for simple use cases (thread-local, automatically seeded)
+- For performance-critical code, consider reusing `Rng` instances
+- Use `gen_range()` for generating values in a range
+- Consider `SmallRng` for faster but lower-quality randomness if needed
+- For reproducible randomness, use seeded RNGs (`StdRng::seed_from_u64()`)
+
+**Version Notes**:
+- rand 0.8.x is the current stable series
+- API is stable and well-documented
+- Consider upgrading to 0.9.x when available for potential performance improvements
+
+**Example Usage**:
+```rust
+use rand::Rng;
+
+let mut rng = rand::thread_rng();
+let value = rng.gen_range(0.0..=1.0);
+```
+
+### serde 1.0.196
+
+**Purpose**: Serialization and deserialization framework
+
+**Usage in Project**:
+- Deserializing level data from JSON (`level.json`)
+- Uses `derive` feature for automatic trait implementations
+
+**Best Practices**:
+- Always enable only the features you need (`derive` feature is essential for this project)
+- Use `#[derive(Serialize, Deserialize)]` on structs that need serialization
+- For large data structures, consider streaming deserialization
+- Use `serde_json` for JSON, `serde_yaml` for YAML, etc.
+- Prefer `include_bytes!()` for embedding static data at compile time (as done with `level.json`)
+
+**Version Notes**:
+- serde 1.0.x is stable and widely used
+- Version 1.0.196 is relatively recent (as of project creation)
+- serde follows semantic versioning - 1.0.x versions are API-compatible
+- Consider using version ranges (`serde = "1.0"`) to allow patch updates, or pin exact versions for reproducibility
+
+**Example Usage**:
+```rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize)]
+struct LevelData {
+    // fields
+}
+
+let data: LevelData = serde_json::from_str(json_str)?;
+```
+
+### serde_json 1.0.112
+
+**Purpose**: JSON serialization/deserialization implementation for serde
+
+**Usage in Project**:
+- Parsing `level.json` file embedded via `include_bytes!()`
+- Deserializing level geometry data (`Vec<Vec<u32>>`)
+
+**Best Practices**:
+- Use `serde_json::from_str()` for string parsing
+- Use `serde_json::from_slice()` for byte slice parsing (more efficient)
+- Consider `serde_json::from_reader()` for streaming large files
+- For embedded data, `include_bytes!()` + `from_str()` is efficient
+- Handle errors properly - use `?` operator or match on `Result`
+
+**Version Notes**:
+- serde_json 1.0.112 is compatible with serde 1.0.196
+- Keep serde and serde_json versions compatible
+- serde_json follows semantic versioning
+
+**Example Usage**:
+```rust
+use serde_json;
+
+const LEVEL_DATA: &'static [u8] = include_bytes!("../assets/level.json");
+let json_str = std::str::from_utf8(LEVEL_DATA)?;
+let data: Vec<Vec<u32>> = serde_json::from_str(json_str)?;
+```
+
+## Dependency Management Best Practices
+
+### Version Pinning
+
+- **Current Approach**: Exact versions specified (e.g., `bevy = "0.12.1"`)
+- **Recommendation**: 
+  - For libraries: Consider using caret ranges (`bevy = "^0.12.1"`) to allow compatible updates
+  - For applications: Pin exact versions in `Cargo.toml` and commit `Cargo.lock` for reproducible builds
+  - Current approach (exact versions) is appropriate for application projects
+
+### Feature Flags
+
+- **serde**: Only `derive` feature enabled (minimal, appropriate)
+- **bevy**: Uses default features (includes rendering, windowing, etc.)
+- **Best Practice**: Only enable features you actually use to reduce compile time and binary size
+
+### Dependency Updates
+
+1. **Regular Audits**: Run `cargo audit` to check for security vulnerabilities
+2. **Outdated Check**: Use `cargo-outdated` to see available updates
+3. **Testing**: Always test thoroughly after dependency updates, especially for Bevy (breaking changes common)
+4. **Changelogs**: Review changelogs before major version updates
+
+### Build Optimization
+
+- Use `cargo build --release` for optimized builds
+- Consider `cargo build --profile dev` for faster debug builds
+- Use `cargo tree` to visualize dependency graph
+- Use `cargo-udeps` to find unused dependencies
+
+## Project-Specific Patterns
+
+### Bevy Plugin Organization
+
+- Systems are organized into plugins (`CollisionPlugin`, `FleeAIPlugin`)
+- Each plugin encapsulates related functionality
+- Plugins are registered in `main.rs` via `.add_plugins()`
+
+### Resource Management
+
+- Global state stored as `Resource` (e.g., `Level`, `InputDir`, `PlayerPosition`)
+- Resources are accessed via `Res<T>` or `ResMut<T>` in systems
+- Resources are inserted during startup or by systems
+
+### Component Usage
+
+- `Physics` component stores velocity, acceleration, position data
+- `Player` and `FleeAI` are marker components for entity identification
+- Components are queried with filters for efficient access
+
+## Version Compatibility Matrix
+
+| Dependency | Version | Compatible With |
+|------------|---------|-----------------|
+| bevy | 0.12.1 | Rust 1.70+ |
+| rand | 0.8.5 | Rust 1.56+ |
+| serde | 1.0.196 | Rust 1.56+ |
+| serde_json | 1.0.112 | serde 1.0.x |
+
+## Notes
+
+- All dependencies are in the `[dependencies]` section (no dev-dependencies currently)
+- No build-dependencies required
+- Project uses standard Rust toolchain (no special build requirements)
+- Web build support via Bevy's WASM target (see `out/` directory)
