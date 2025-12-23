@@ -17,6 +17,7 @@ The user wants you to create a prompt for: $ARGUMENTS
 Analyze the user's request to determine:
 
 1. **Clarity check (Golden Rule)**: Would a colleague with minimal context understand what's being asked?
+
    - Are there ambiguous terms that could mean multiple things?
    - Would examples help clarify the desired outcome?
    - Are there missing details about constraints or requirements?
@@ -25,16 +26,19 @@ Analyze the user's request to determine:
 2. **Task complexity**: Is this simple (single file, clear goal) or complex (multi-file, research needed, multiple steps)?
 
 3. **Single vs Multiple Prompts**: Should this be one prompt or broken into multiple?
+
    - Single prompt: Task has clear dependencies, single cohesive goal, sequential steps
    - Multiple prompts: Task has independent sub-tasks that could be parallelized or done separately
    - Consider: Can parts be done simultaneously? Are there natural boundaries between sub-tasks?
 
 4. **Execution Strategy** (if multiple prompts):
+
    - **Parallel**: Sub-tasks are independent, no shared file modifications, can run simultaneously
    - **Sequential**: Sub-tasks have dependencies, one must finish before next starts
    - Look for: Shared files (sequential), independent modules (parallel), data flow between tasks (sequential)
 
 5. **Reasoning depth needed**:
+
    - Simple/straightforward → Standard prompt
    - Complex reasoning, multiple constraints, or optimization → Include extended thinking triggers (phrases like "thoroughly analyze", "consider multiple approaches", "deeply consider")
 
@@ -252,6 +256,7 @@ Before completing, verify:
 4. **Scope Assessment**: Simple tasks get concise prompts. Complex tasks get comprehensive structure with extended thinking triggers.
 
 5. **Context Loading**: Only request file reading when the task explicitly requires understanding existing code. Use patterns like:
+
    - "Examine @package.json for dependencies" (when adding new packages)
    - "Review @src/database/\* for schema" (when modifying data layer)
    - Skip file reading for greenfield features
@@ -259,6 +264,7 @@ Before completing, verify:
 6. **Precision vs Brevity**: Default to precision. A longer, clear prompt beats a short, ambiguous one.
 
 7. **Tool Integration**:
+
    - Include MCP servers only when explicitly mentioned or obviously needed
    - Use bash commands for environment checking when state matters
    - File references should be specific, not broad wildcards
@@ -373,18 +379,10 @@ Run:
 
 Available <tech>:
 
-- svelte
-- tailwindcss
-- opencode
-- runed
-- zod
-- neverthrow
-- shadcn-svelte
-- formsnap
-- sveltekit-superforms
-- firebase
-- firebase-admin
-- vitest
+- bevy
+- bevy-docs
+- bevy-cheatbook
+- rust-book
 
 ## GitHub CLI
 
