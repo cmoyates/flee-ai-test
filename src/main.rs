@@ -7,13 +7,13 @@ use std::f32::consts::PI;
 
 use ::bevy::prelude::*;
 use ai::flee::{render_flee_ai, FleeAI, FleeAIPlugin};
-use bevy::{app::AppExit, window::PresentMode};
+use bevy::{app::AppExit, color::palettes::css, window::PresentMode};
 use collisions::{s_collision, CollisionPlugin};
 use level::{generate_level_polygons, Polygon};
 
 fn main() {
     App::new()
-        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+        .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
         .insert_resource(InputDir { dir: Vec2::ZERO })
         .insert_resource(PlayerPosition {
             position: Vec2::ZERO,
@@ -89,7 +89,7 @@ pub fn s_init(mut commands: Commands) {
         half_size,
     });
 
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2d);
 
     commands.spawn((
         Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
@@ -115,14 +115,14 @@ pub fn s_init(mut commands: Commands) {
         FleeAI {
             dir_weights: [0.0; 16],
             wander_angle: PI / 2.0,
-            color: Color::GREEN,
+            color: Color::Srgba(css::GREEN),
             blend: 1.0,
         },
     ));
 }
 
 pub fn s_input(
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut exit: EventWriter<AppExit>,
     mut input_dir: ResMut<InputDir>,
     mut gizmos_visible: ResMut<GizmosVisible>,
@@ -132,25 +132,25 @@ pub fn s_input(
     // Escape to exit (if not WASM)
     #[cfg(not(target_arch = "wasm32"))]
     if keyboard_input.just_pressed(KeyCode::Escape) {
-        exit.send(AppExit);
+        exit.write(AppExit::Success);
     }
 
     // Toggle gizmos
-    if keyboard_input.just_pressed(KeyCode::G) {
+    if keyboard_input.just_pressed(KeyCode::KeyG) {
         gizmos_visible.visible = !gizmos_visible.visible;
     }
 
     // Arrow keys to move
-    if keyboard_input.pressed(KeyCode::Up) {
+    if keyboard_input.pressed(KeyCode::ArrowUp) {
         direction.y += 1.0;
     }
-    if keyboard_input.pressed(KeyCode::Down) {
+    if keyboard_input.pressed(KeyCode::ArrowDown) {
         direction.y -= 1.0;
     }
-    if keyboard_input.pressed(KeyCode::Left) {
+    if keyboard_input.pressed(KeyCode::ArrowLeft) {
         direction.x -= 1.0;
     }
-    if keyboard_input.pressed(KeyCode::Right) {
+    if keyboard_input.pressed(KeyCode::ArrowRight) {
         direction.x += 1.0;
     }
 
@@ -166,7 +166,7 @@ pub fn s_player_movement(
     mut player_query: Query<(&mut Transform, &mut Physics), With<Player>>,
     mut player_pos: ResMut<PlayerPosition>,
 ) {
-    if let Ok((mut player_transform, mut player_physics)) = player_query.get_single_mut() {
+    if let Ok((mut player_transform, mut player_physics)) = player_query.single_mut() {
         player_physics.prev_position = player_transform.translation.xy();
 
         let desired_velocity = input_dir.dir * PLAYER_MAX_SPEED;
@@ -206,7 +206,7 @@ pub fn s_render(
         gizmos.circle_2d(
             player_transform.translation.xy(),
             player_physics.radius,
-            Color::WHITE,
+            css::WHITE,
         );
 
         // Draw the normal
@@ -214,7 +214,7 @@ pub fn s_render(
             gizmos.line_2d(
                 player_transform.translation.xy(),
                 player_transform.translation.xy() + player_physics.normal * player_physics.radius,
-                Color::WHITE,
+                css::WHITE,
             );
         }
     }

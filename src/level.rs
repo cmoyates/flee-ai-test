@@ -1,4 +1,4 @@
-use bevy::{math::Vec2, render::color::Color};
+use bevy::{color::Color, math::Vec2};
 use rand::Rng;
 
 use crate::utils::line_intersect;
@@ -12,7 +12,7 @@ pub struct Polygon {
 const LEVEL_DATA: &'static [u8] = include_bytes!("../assets/level.json");
 
 pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let res = std::str::from_utf8(LEVEL_DATA);
     let json_data: Vec<Vec<u32>> = serde_json::from_str(&res.unwrap()).unwrap();
@@ -486,10 +486,10 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
     // Separate the lines into polygons
     let mut polygons: Vec<Polygon> = Vec::new();
 
-    let container_color = Color::rgb(
-        rng.gen_range(0.0..=1.0),
-        rng.gen_range(0.0..=1.0),
-        rng.gen_range(0.0..=1.0),
+    let container_color = Color::srgb(
+        rng.random_range(0.0..=1.0),
+        rng.random_range(0.0..=1.0),
+        rng.random_range(0.0..=1.0),
     );
 
     // While there are lines left
@@ -565,10 +565,10 @@ pub fn generate_level_polygons(grid_size: f32) -> (Vec<Polygon>, Vec2, Vec2) {
         let color = if is_container {
             container_color
         } else {
-            Color::rgb(
-                rng.gen_range(0.0..=1.0),
-                rng.gen_range(0.0..=1.0),
-                rng.gen_range(0.0..=1.0),
+            Color::srgb(
+                rng.random_range(0.0..=1.0),
+                rng.random_range(0.0..=1.0),
+                rng.random_range(0.0..=1.0),
             )
         };
 

@@ -1,6 +1,7 @@
 use std::f32::consts::PI;
 
 use ::bevy::prelude::*;
+use bevy::color::palettes::css;
 use rand::Rng;
 
 use crate::{
@@ -70,12 +71,12 @@ pub fn s_flee_ai_movement(
         let max_distance = 400.0;
         let min_distance = 200.0;
         let blend = if !can_see_player {
-            (ai_data.blend + time.delta_seconds()).min(1.0)
+            (ai_data.blend + time.delta_secs()).min(1.0)
         } else {
             ((distance - min_distance) / (max_distance - min_distance)).max(0.0)
         };
 
-        ai_data.color = Color::rgb(1.0 - blend, blend, 0.0);
+        ai_data.color = Color::srgb(1.0 - blend, blend, 0.0);
 
         if gizmos_visible.visible {
             gizmos.line_2d(
@@ -198,16 +199,16 @@ pub fn get_wander_dir(
     let circle_center = Vec2::new(x, y) + wander_point;
 
     if gizmos_visible {
-        gizmos.circle_2d(wander_point, 5.0, Color::RED.with_a(blend));
-        gizmos.circle_2d(wander_point, wander_radius, Color::WHITE.with_a(blend));
-        gizmos.circle_2d(circle_center, 5.0, Color::GREEN.with_a(blend));
+        gizmos.circle_2d(wander_point, 5.0, css::RED.with_alpha(blend));
+        gizmos.circle_2d(wander_point, wander_radius, css::WHITE.with_alpha(blend));
+        gizmos.circle_2d(circle_center, 5.0, css::GREEN.with_alpha(blend));
     }
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let diplace_range: f32 = 0.3;
 
-    *wander_angle += rng.gen_range(-diplace_range..diplace_range);
+    *wander_angle += rng.random_range(-diplace_range..diplace_range);
 
     return (circle_center - *position).normalize();
 }
@@ -227,13 +228,13 @@ pub fn render_flee_ai(
             gizmos.line_2d(
                 flee_ai_pos,
                 flee_ai_pos + flee_ai_physics.normal * flee_ai_physics.radius,
-                Color::WHITE,
+                css::WHITE,
             );
         }
 
         // Draw the dir weights
         if gizmos_visible {
-            gizmos.circle_2d(flee_ai_pos, 30.0, Color::WHITE.with_a(0.2));
+            gizmos.circle_2d(flee_ai_pos, 30.0, css::WHITE.with_alpha(0.2));
 
             let mut angle: f32 = 0.0;
 
@@ -245,9 +246,9 @@ pub fn render_flee_ai(
 
             for weight in flee_ai_data.dir_weights.iter() {
                 let color = if *weight < 0.0 {
-                    Color::RED
+                    css::RED
                 } else {
-                    Color::GREEN
+                    css::GREEN
                 };
 
                 let x = angle.cos() * 30.0 * weight.abs() / max_weight;
