@@ -56,7 +56,7 @@ pub fn s_collision(mut entity_query: Query<(&mut Transform, &mut Physics)>, leve
                 }
 
                 let (distance_sq, projection) =
-                    find_projection(start, end, transform.translation.xy(), physics.radius);
+                    find_projection(start, end, transform.translation.xy());
 
                 let colliding_with_line = distance_sq <= physics.radius.powi(2);
                 colliding_with_polygon = colliding_with_polygon || colliding_with_line;
@@ -93,7 +93,8 @@ pub fn s_collision(mut entity_query: Query<(&mut Transform, &mut Physics)>, leve
         physics.normal = new_normal.normalize_or_zero();
 
         // Remove the players velocity in the direction of the normal
-        let velocity_adjustment = physics.velocity.dot(new_normal) * new_normal;
+        // Use normalized normal to prevent excessive damping at corners where multiple edges contribute
+        let velocity_adjustment = physics.velocity.dot(physics.normal) * physics.normal;
         physics.velocity -= velocity_adjustment;
 
         // Update the players position
@@ -101,7 +102,7 @@ pub fn s_collision(mut entity_query: Query<(&mut Transform, &mut Physics)>, leve
     }
 }
 
-pub fn find_projection(start: Vec2, end: Vec2, point: Vec2, radius: f32) -> (f32, Vec2) {
+pub fn find_projection(start: Vec2, end: Vec2, point: Vec2) -> (f32, Vec2) {
     let point_vec = point - start;
     let line_vec = end - start;
 
@@ -113,11 +114,11 @@ pub fn find_projection(start: Vec2, end: Vec2, point: Vec2, radius: f32) -> (f32
 
     // If the projection point is outside the line past start
     if (end - projection_point).length_squared() > (end - start).length_squared() {
-        return (point_vec.length_squared() + radius * 2.0, start);
+        return (point_vec.length_squared(), start);
     }
     // If the projection point is outside the line past end
     if (projection_point - start).length_squared() > (end - start).length_squared() {
-        return ((point - end).length_squared() + radius * 2.0, end);
+        return ((point - end).length_squared(), end);
     }
 
     let dist = (point - projection_point).length_squared();
