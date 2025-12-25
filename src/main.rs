@@ -1,6 +1,7 @@
 mod ai;
 mod collisions;
 mod level;
+mod spatial;
 mod utils;
 
 use std::f32::consts::PI;
@@ -10,6 +11,7 @@ use ai::flee::{render_flee_ai, FleeAI, FleeAIPlugin};
 use bevy::{app::AppExit, color::palettes::css, window::PresentMode};
 use collisions::{s_collision, CollisionPlugin};
 use level::{generate_level_polygons, Polygon};
+use spatial::SpatialGrid;
 
 fn main() {
     App::new()
@@ -85,12 +87,18 @@ pub fn s_init(mut commands: Commands) {
 
     let (level_polygons, size, half_size) = generate_level_polygons(grid_size);
 
+    // Create spatial grid for efficient raycast queries
+    // Complexity: O(edges) at startup, but enables O(nearby_edges) per-raycast queries
+    let spatial_grid = SpatialGrid::new(&level_polygons, grid_size);
+
     commands.insert_resource(Level {
         polygons: level_polygons,
         grid_size,
         size,
         half_size,
     });
+
+    commands.insert_resource(spatial_grid);
 
     commands.spawn(Camera2d);
 

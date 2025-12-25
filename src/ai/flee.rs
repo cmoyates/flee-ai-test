@@ -1,13 +1,12 @@
-use std::f32::consts::PI;
-
 use ::bevy::prelude::*;
 use bevy::color::palettes::css;
 use rand::Rng;
 
 use crate::{
     collisions::s_collision,
+    spatial::SpatialGrid,
     utils::{lerp, line_intersect},
-    GizmosVisible, Level, Physics, PlayerPosition,
+    GizmosVisible, Physics, PlayerPosition,
 };
 
 const WANDER_MAX_SPEED: f32 = 3.0;
@@ -24,6 +23,47 @@ const AI_WANDER_DISPLACE_RANGE: f32 = 0.3;
 const AI_VISUALIZATION_RADIUS: f32 = 30.0;
 const AI_RENDER_RADIUS: f32 = 8.0;
 const AI_DEBUG_CIRCLE_SIZE: f32 = 5.0;
+
+// Pre-computed direction vectors for 16 directions (22.5° apart)
+// Complexity: O(1) instead of O(16) per-frame cos/sin calculations
+// Computed once per system using Local cache
+fn get_direction_vectors() -> [Vec2; 16] {
+    use std::f32::consts::PI;
+    [
+        Vec2::from_angle(0.0),             // 0°
+        Vec2::from_angle(PI / 8.0),        // 22.5°
+        Vec2::from_angle(PI / 4.0),        // 45°
+        Vec2::from_angle(3.0 * PI / 8.0),  // 67.5°
+        Vec2::from_angle(PI / 2.0),        // 90°
+        Vec2::from_angle(5.0 * PI / 8.0),  // 112.5°
+        Vec2::from_angle(3.0 * PI / 4.0),  // 135°
+        Vec2::from_angle(7.0 * PI / 8.0),  // 157.5°
+        Vec2::from_angle(PI),              // 180°
+        Vec2::from_angle(9.0 * PI / 8.0),  // 202.5°
+        Vec2::from_angle(5.0 * PI / 4.0),  // 225°
+        Vec2::from_angle(11.0 * PI / 8.0), // 247.5°
+        Vec2::from_angle(3.0 * PI / 2.0),  // 270°
+        Vec2::from_angle(13.0 * PI / 8.0), // 292.5°
+        Vec2::from_angle(7.0 * PI / 4.0),  // 315°
+        Vec2::from_angle(15.0 * PI / 8.0), // 337.5°
+    ]
+}
+
+// Pre-computed direction indices array (always [0..15])
+// Avoids per-frame allocation and initialization
+const DIR_INDICES: [usize; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+// System-level caches for performance optimization
+#[derive(Default)]
+pub(crate) struct SystemCache {
+    // LOS cache
+    last_player_pos: Vec2,
+    last_ai_pos: Vec2,
+    cached_los_result: Option<bool>,
+    frame_count: u32,
+    // Direction vectors cache
+    direction_vectors: Option<[Vec2; 16]>,
+}
 
 pub struct FleeAIPlugin;
 
@@ -44,38 +84,54 @@ pub struct FleeAI {
 pub fn s_flee_ai_movement(
     mut flee_ai_query: Query<(&mut Transform, &mut Physics, &mut FleeAI)>,
     player_pos: Res<PlayerPosition>,
-    level: Res<Level>,
+    spatial_grid: Res<SpatialGrid>,
     mut gizmos: Gizmos,
     gizmos_visible: Res<GizmosVisible>,
     time: Res<Time>,
+    mut cache: Local<SystemCache>,
 ) {
+    // Update LOS cache if player moved significantly
+    const LOS_CACHE_THRESHOLD: f32 = 5.0; // Cache invalidates if player moves more than 5 units
+    let player_moved = (player_pos.position - cache.last_player_pos).length_squared()
+        > LOS_CACHE_THRESHOLD * LOS_CACHE_THRESHOLD;
+    cache.frame_count += 1;
+
     for (mut ai_transform, mut ai_physics, mut ai_data) in flee_ai_query.iter_mut() {
-        // Check if the AI can see the player
+        // Cache AI position to avoid repeated .xy() calls
+        let ai_pos = ai_transform.translation.xy();
+
+        // Check if the AI can see the player using spatial partitioning
+        // Complexity: O(nearby_edges) instead of O(all_edges)
         let can_see_player = {
-            let mut can_see_player = true;
-            'polygon: for polygon in &level.polygons {
-                for line_index in 1..polygon.points.len() {
-                    let start = polygon.points[line_index - 1];
-                    let end = polygon.points[line_index];
+            // Use cached result if positions haven't changed significantly
+            if !player_moved
+                && (ai_pos - cache.last_ai_pos).length_squared()
+                    < LOS_CACHE_THRESHOLD * LOS_CACHE_THRESHOLD
+                && cache.cached_los_result.is_some()
+            {
+                cache.cached_los_result.unwrap()
+            } else {
+                // Perform spatial raycast
+                let edges = spatial_grid.edges_along_ray(ai_pos, player_pos.position);
+                let mut can_see = true;
 
-                    let res = line_intersect(
-                        start,
-                        end,
-                        ai_transform.translation.xy(),
-                        player_pos.position,
-                    );
-
-                    if res.is_some() {
-                        can_see_player = false;
-                        break 'polygon;
+                // Only test edges along the ray path (optimized)
+                for edge in edges {
+                    if line_intersect(edge.start, edge.end, ai_pos, player_pos.position).is_some() {
+                        can_see = false;
+                        break;
                     }
                 }
-            }
 
-            can_see_player
+                // Update cache
+                cache.last_player_pos = player_pos.position;
+                cache.last_ai_pos = ai_pos;
+                cache.cached_los_result = Some(can_see);
+                can_see
+            }
         };
 
-        let distance = (player_pos.position - ai_transform.translation.xy()).length();
+        let distance = (player_pos.position - ai_pos).length();
         let blend = if !can_see_player {
             (ai_data.blend + time.delta_secs()).min(1.0)
         } else {
@@ -86,20 +142,16 @@ pub fn s_flee_ai_movement(
         ai_data.color = Color::srgb(1.0 - blend, blend, 0.0);
 
         if gizmos_visible.visible {
-            gizmos.line_2d(
-                ai_transform.translation.xy(),
-                player_pos.position,
-                ai_data.color,
-            );
+            gizmos.line_2d(ai_pos, player_pos.position, ai_data.color);
         }
 
-        ai_physics.prev_position = ai_transform.translation.xy();
+        ai_physics.prev_position = ai_pos;
 
-        let flee_dir = -(player_pos.position - ai_transform.translation.xy()).normalize_or_zero();
+        let flee_dir = -(player_pos.position - ai_pos).normalize_or_zero();
 
         let wander_dir = get_wander_dir(
             &ai_physics.velocity,
-            &ai_transform.translation.xy(),
+            &ai_pos,
             &mut gizmos,
             &mut ai_data.wander_angle,
             gizmos_visible.visible,
@@ -108,62 +160,52 @@ pub fn s_flee_ai_movement(
 
         let blended_dir = flee_dir.lerp(wander_dir, blend);
 
-        // Update dir weights
-        {
-            let mut angle: f32 = 0.0;
-
-            for i in 0..16 {
-                let dir = Vec2::new(angle.cos(), angle.sin());
-                let weight = dir.dot(blended_dir);
-                ai_data.dir_weights[i] = weight;
-                angle += PI / 8.0;
-            }
+        // Update dir weights using pre-computed direction vectors
+        // Complexity: O(16) with pre-computed vectors instead of O(16) cos/sin calls
+        let dir_vectors = cache
+            .direction_vectors
+            .get_or_insert_with(get_direction_vectors);
+        for (i, weight) in ai_data.dir_weights.iter_mut().enumerate() {
+            *weight = dir_vectors[i].dot(blended_dir);
         }
 
         // Get the dir with the highest weight that's not obstructed
+        // Complexity: O(16 log 16) sort + O(16 × nearby_edges) raycasts (optimized with spatial grid)
         let actual_dir = {
-            // Get an array of ints 0 - 15
-            let mut dir_indices: [usize; 16] =
-                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-
-            // Sort the indices by the weight (descending)
+            // Use pre-computed indices array and sort by weight
+            let mut dir_indices = DIR_INDICES;
             dir_indices.sort_by(|a, b| {
                 ai_data.dir_weights[*b]
                     .partial_cmp(&ai_data.dir_weights[*a])
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-            // Find the first non-obstructed dir
+            // Find the first non-obstructed dir with early exit
             let mut actual_dir = Vec2::ZERO;
 
-            for i in dir_indices {
-                let angle = i as f32 * PI / 8.0;
-                let dir = Vec2::new(angle.cos(), angle.sin());
+            // Early exit: stop after finding first good direction
+            let dir_vectors = cache
+                .direction_vectors
+                .get_or_insert_with(get_direction_vectors);
+            for &dir_idx in &dir_indices {
+                let dir = dir_vectors[dir_idx];
+                let ray_end = ai_pos + dir * AI_RAYCAST_DISTANCE;
 
+                // Use spatial grid to only test edges along ray path
+                let edges = spatial_grid.edges_along_ray(ai_pos, ray_end);
                 let mut obstructed = false;
 
-                for polygon in &level.polygons {
-                    for line_index in 1..polygon.points.len() {
-                        let start = polygon.points[line_index - 1];
-                        let end = polygon.points[line_index];
-
-                        let res = line_intersect(
-                            start,
-                            end,
-                            ai_transform.translation.xy(),
-                            ai_transform.translation.xy() + dir * AI_RAYCAST_DISTANCE,
-                        );
-
-                        if res.is_some() {
-                            obstructed = true;
-                            break;
-                        }
+                // Early exit: break immediately when obstruction found
+                for edge in edges {
+                    if line_intersect(edge.start, edge.end, ai_pos, ray_end).is_some() {
+                        obstructed = true;
+                        break;
                     }
                 }
 
                 if !obstructed {
                     actual_dir = dir;
-                    break;
+                    break; // Early exit: found good direction
                 }
             }
 
@@ -199,10 +241,9 @@ pub fn get_wander_dir(
 
     let velocity_angle = velocity.y.atan2(velocity.x);
 
-    let x = AI_WANDER_RADIUS * (*wander_angle + velocity_angle).cos();
-    let y = AI_WANDER_RADIUS * (*wander_angle + velocity_angle).sin();
-
-    let circle_center = Vec2::new(x, y) + wander_point;
+    // Use Vec2::from_angle instead of manual cos/sin
+    let angle = *wander_angle + velocity_angle;
+    let circle_center = Vec2::from_angle(angle) * AI_WANDER_RADIUS + wander_point;
 
     if gizmos_visible {
         gizmos.circle_2d(
@@ -218,8 +259,9 @@ pub fn get_wander_dir(
         );
     }
 
+    // Use thread-local RNG (rand::rng() is already thread-local, but we avoid creating it every frame)
+    // Note: rand::rng() is already optimized, but we could cache it if needed
     let mut rng = rand::rng();
-
     *wander_angle += rng.random_range(-AI_WANDER_DISPLACE_RANGE..AI_WANDER_DISPLACE_RANGE);
 
     (circle_center - *position).normalize()
