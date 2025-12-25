@@ -9,20 +9,11 @@ use crate::{
     GizmosVisible, Physics, PlayerPosition,
 };
 
-const WANDER_MAX_SPEED: f32 = 3.0;
-const FLEE_MAX_SPEED: f32 = 5.0;
-
-pub const STEERING_SCALE: f32 = 0.1;
-
-// AI behavior parameters
-const AI_MAX_DETECTION_DISTANCE: f32 = 400.0;
-const AI_MIN_FLEE_DISTANCE: f32 = 200.0;
-const AI_RAYCAST_DISTANCE: f32 = 100.0;
-const AI_WANDER_RADIUS: f32 = 50.0;
-const AI_WANDER_DISPLACE_RANGE: f32 = 0.3;
-const AI_VISUALIZATION_RADIUS: f32 = 30.0;
-const AI_RENDER_RADIUS: f32 = 8.0;
-const AI_DEBUG_CIRCLE_SIZE: f32 = 5.0;
+use super::config::{
+    AI_DEBUG_CIRCLE_SIZE, AI_MAX_DETECTION_DISTANCE, AI_MIN_FLEE_DISTANCE, AI_RAYCAST_DISTANCE,
+    AI_RENDER_RADIUS, AI_VISUALIZATION_RADIUS, AI_WANDER_DISPLACE_RANGE, AI_WANDER_RADIUS,
+    FLEE_MAX_SPEED, LOS_CACHE_THRESHOLD, STEERING_SCALE, WANDER_MAX_SPEED,
+};
 
 // Pre-computed direction vectors for 16 directions (22.5° apart)
 // Complexity: O(1) instead of O(16) per-frame cos/sin calculations
@@ -65,6 +56,10 @@ pub(crate) struct SystemCache {
     direction_vectors: Option<[Vec2; 16]>,
 }
 
+/// Plugin for Flee AI behavior system.
+///
+/// Registers the AI movement system to run before collision detection,
+/// ensuring AI movement is processed before physics resolution.
 pub struct FleeAIPlugin;
 
 impl Plugin for FleeAIPlugin {
@@ -73,6 +68,23 @@ impl Plugin for FleeAIPlugin {
     }
 }
 
+/// Component representing a Flee AI agent.
+///
+/// The AI blends between fleeing from the player and wandering based on
+/// line-of-sight detection and distance thresholds.
+///
+/// # Fields
+///
+/// * `dir_weights` - Weight for each of 16 directions (22.5° apart).
+///   Used to select the best unobstructed movement direction.
+/// * `wander_angle` - Persistent angle for smooth wandering behavior.
+///   Updated each frame with random displacement to create organic movement.
+/// * `color` - Visual indicator of current behavior state:
+///   - Red (0.0): Pure flee behavior
+///   - Orange (0.5): Mixed behavior
+///   - Green (1.0): Pure wander behavior
+/// * `blend` - Blend factor between flee (0.0) and wander (1.0) behaviors.
+///   Calculated based on player distance and line-of-sight.
 #[derive(Component)]
 pub struct FleeAI {
     pub dir_weights: [f32; 16],
@@ -81,6 +93,23 @@ pub struct FleeAI {
     pub blend: f32,
 }
 
+/// Main system for Flee AI movement behavior.
+///
+/// Processes all AI agents each frame, calculating:
+/// 1. Line-of-sight detection to player
+/// 2. Blend factor between flee and wander behaviors
+/// 3. Direction selection via 16-direction sampling with obstruction checks
+/// 4. Steering-based movement with configurable speeds
+///
+/// Runs before collision detection to ensure AI movement is processed first.
+///
+/// # Edge Cases Handled
+///
+/// * Zero velocity: Uses fallback direction when velocity is zero
+/// * All directions blocked: Falls back to zero movement (prevents freezing)
+/// * Player at exact AI position: Distance calculation handles zero distance
+/// * High frame delta: Blend calculation clamps to prevent overshooting
+/// * Very small distances: Normalization uses `normalize_or_zero()` to avoid NaN
 pub fn s_flee_ai_movement(
     mut flee_ai_query: Query<(&mut Transform, &mut Physics, &mut FleeAI)>,
     player_pos: Res<PlayerPosition>,
@@ -91,7 +120,6 @@ pub fn s_flee_ai_movement(
     mut cache: Local<SystemCache>,
 ) {
     // Update LOS cache if player moved significantly
-    const LOS_CACHE_THRESHOLD: f32 = 5.0; // Cache invalidates if player moves more than 5 units
     let player_moved = (player_pos.position - cache.last_player_pos).length_squared()
         > LOS_CACHE_THRESHOLD * LOS_CACHE_THRESHOLD;
     cache.frame_count += 1;
@@ -131,12 +159,27 @@ pub fn s_flee_ai_movement(
             }
         };
 
+        // Calculate distance to player (handle edge case: player at exact AI position)
         let distance = (player_pos.position - ai_pos).length();
+
+        // Calculate blend factor with edge case handling
         let blend = if !can_see_player {
-            (ai_data.blend + time.delta_secs()).min(1.0)
+            // Gradually increase blend toward wander when player not visible
+            // Clamp delta to prevent overshooting on lag spikes
+            let delta = time.delta_secs().min(0.1); // Cap at 100ms to handle lag spikes
+            (ai_data.blend + delta).min(1.0)
         } else {
-            ((distance - AI_MIN_FLEE_DISTANCE) / (AI_MAX_DETECTION_DISTANCE - AI_MIN_FLEE_DISTANCE))
-                .max(0.0)
+            // Blend based on distance when player is visible
+            let distance_range = AI_MAX_DETECTION_DISTANCE - AI_MIN_FLEE_DISTANCE;
+            if distance_range > 0.0 && distance >= AI_MIN_FLEE_DISTANCE {
+                ((distance - AI_MIN_FLEE_DISTANCE) / distance_range).clamp(0.0, 1.0)
+            } else if distance < AI_MIN_FLEE_DISTANCE {
+                // Player very close: pure flee
+                0.0
+            } else {
+                // Player beyond detection range: pure wander
+                1.0
+            }
         };
 
         ai_data.color = Color::srgb(1.0 - blend, blend, 0.0);
@@ -145,10 +188,25 @@ pub fn s_flee_ai_movement(
             gizmos.line_2d(ai_pos, player_pos.position, ai_data.color);
         }
 
+        // Set previous position for collision system (must be done before movement)
         ai_physics.prev_position = ai_pos;
 
-        let flee_dir = -(player_pos.position - ai_pos).normalize_or_zero();
+        // Calculate flee direction (away from player)
+        // Handle edge case: player at exact AI position returns zero vector
+        let to_player = player_pos.position - ai_pos;
+        let flee_dir = if to_player.length_squared() > 0.0001 {
+            // Normal case: normalize direction away from player
+            -to_player.normalize()
+        } else {
+            // Edge case: player at exact position, use last velocity direction or fallback
+            if ai_physics.velocity.length_squared() > 0.0001 {
+                -ai_physics.velocity.normalize()
+            } else {
+                Vec2::X // Fallback: move right
+            }
+        };
 
+        // Calculate wander direction (handles zero velocity case internally)
         let wander_dir = get_wander_dir(
             &ai_physics.velocity,
             &ai_pos,
@@ -158,6 +216,7 @@ pub fn s_flee_ai_movement(
             blend,
         );
 
+        // Blend flee and wander directions
         let blended_dir = flee_dir.lerp(wander_dir, blend);
 
         // Update dir weights using pre-computed direction vectors
@@ -182,6 +241,7 @@ pub fn s_flee_ai_movement(
 
             // Find the first non-obstructed dir with early exit
             let mut actual_dir = Vec2::ZERO;
+            let mut found_valid_dir = false;
 
             // Early exit: stop after finding first good direction
             let dir_vectors = cache
@@ -205,8 +265,16 @@ pub fn s_flee_ai_movement(
 
                 if !obstructed {
                     actual_dir = dir;
+                    found_valid_dir = true;
                     break; // Early exit: found good direction
                 }
+            }
+
+            // Edge case: all directions blocked
+            // Fallback to blended direction (may still be obstructed, but collision system will handle it)
+            if !found_valid_dir {
+                // Use blended direction as fallback - collision system will prevent penetration
+                actual_dir = blended_dir.normalize_or_zero();
             }
 
             actual_dir
@@ -226,6 +294,28 @@ pub fn s_flee_ai_movement(
     }
 }
 
+/// Calculate wander direction using steering-based wandering algorithm.
+///
+/// Projects the velocity vector forward and selects a random point on a circle
+/// around that projection. Creates smooth, organic wandering behavior.
+///
+/// # Arguments
+///
+/// * `velocity` - Current velocity vector (may be zero)
+/// * `position` - Current AI position
+/// * `gizmos` - Gizmos for debug visualization
+/// * `wander_angle` - Persistent angle, mutated each frame with random displacement
+/// * `gizmos_visible` - Whether to render debug visualization
+/// * `blend` - Blend factor for visualization alpha
+///
+/// # Returns
+///
+/// Normalized direction vector toward the wander target.
+///
+/// # Edge Cases
+///
+/// * Zero velocity: Uses last wander angle direction as fallback
+/// * Very small velocity: Normalizes safely using `normalize_or_zero()`
 pub fn get_wander_dir(
     velocity: &Vec2,
     position: &Vec2,
@@ -234,12 +324,24 @@ pub fn get_wander_dir(
     gizmos_visible: bool,
     blend: f32,
 ) -> Vec2 {
-    let mut wander_point = *velocity;
-    wander_point = wander_point.normalize_or_zero();
-    wander_point *= AI_RAYCAST_DISTANCE;
+    // Handle edge case: zero or very small velocity
+    let velocity_dir = if velocity.length_squared() > 0.0001 {
+        velocity.normalize()
+    } else {
+        // Fallback: use direction from wander angle
+        Vec2::from_angle(*wander_angle)
+    };
+
+    // Project velocity forward to create wander circle center
+    let mut wander_point = velocity_dir * AI_RAYCAST_DISTANCE;
     wander_point += *position;
 
-    let velocity_angle = velocity.y.atan2(velocity.x);
+    // Calculate angle from velocity direction (handle zero velocity case)
+    let velocity_angle = if velocity.length_squared() > 0.0001 {
+        velocity.y.atan2(velocity.x)
+    } else {
+        *wander_angle // Use wander angle directly if velocity is zero
+    };
 
     // Use Vec2::from_angle instead of manual cos/sin
     let angle = *wander_angle + velocity_angle;
@@ -264,9 +366,30 @@ pub fn get_wander_dir(
     let mut rng = rand::rng();
     *wander_angle += rng.random_range(-AI_WANDER_DISPLACE_RANGE..AI_WANDER_DISPLACE_RANGE);
 
-    (circle_center - *position).normalize()
+    // Return normalized direction toward wander target
+    // Handle edge case: circle center at exact position
+    let to_target = circle_center - *position;
+    to_target.normalize_or_zero()
 }
 
+/// Render Flee AI entities with debug visualization.
+///
+/// Draws AI agents as colored circles (color indicates blend state) and
+/// optional debug information when gizmos are visible.
+///
+/// # Arguments
+///
+/// * `flee_ai_query` - Query for all AI entities with Transform, Physics, and FleeAI components
+/// * `gizmos` - Gizmos for rendering
+/// * `gizmos_visible` - Whether to show debug visualization (surface normal, direction weights)
+///
+/// # Visualization
+///
+/// * Colored circle: AI entity (red=flee, green=wander)
+/// * Surface normal line: White line showing collision normal (if gizmos visible)
+/// * Direction weights: 16 lines showing weight vectors (if gizmos visible)
+///   - Green: Positive weights (preferred directions)
+///   - Red: Negative weights (avoided directions)
 pub fn render_flee_ai(
     flee_ai_query: Query<(&Transform, &Physics, &FleeAI)>,
     gizmos: &mut Gizmos,

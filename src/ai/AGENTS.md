@@ -4,7 +4,9 @@
 
 This module implements the **Flee AI** behavior system, which creates autonomous agents that flee from the player while blending with wandering behavior based on line-of-sight and distance.
 
-**Key File**: `flee.rs` - Complete AI behavior implementation
+**Key Files**:
+- `flee.rs` - Complete AI behavior implementation
+- `config.rs` - Centralized configuration constants
 
 **Behavior Inspiration**: Rain World creature behavior (fleeing from player, wandering when safe)
 
@@ -25,24 +27,24 @@ The AI blends between two behaviors:
 
 ### Line-of-Sight (LOS) Detection
 
-The AI checks if it can see the player by raycasting through all level polygons:
+The AI checks if it can see the player using spatial partitioning for efficient raycasting:
 
 ```rust
-let can_see_player = {
-    let mut can_see = true;
-    'polygon: for polygon in &level.polygons {
-        for line in polygon.edges() {
-            if line_intersect(line, ai_pos, player_pos).is_some() {
-                can_see = false;
-                break 'polygon;
-            }
-        }
+let edges = spatial_grid.edges_along_ray(ai_pos, player_pos.position);
+let mut can_see = true;
+for edge in edges {
+    if line_intersect(edge.start, edge.end, ai_pos, player_pos.position).is_some() {
+        can_see = false;
+        break;
     }
-    can_see
-};
+}
 ```
 
-**If LOS blocked**: Blend gradually increases toward wander (`blend += delta_time`)
+**Optimization**: Uses `SpatialGrid` to only test edges along the ray path, reducing complexity from O(all_edges) to O(nearby_edges).
+
+**Caching**: LOS results are cached and invalidated when player or AI moves more than `LOS_CACHE_THRESHOLD` (5.0 pixels).
+
+**If LOS blocked**: Blend gradually increases toward wander (`blend += delta_time`, clamped to handle lag spikes)
 **If LOS clear**: Blend based on distance (closer = more flee)
 
 ### Directional Weighting
@@ -90,40 +92,64 @@ FleeAI {
 pub fn s_flee_ai_movement(
     mut flee_ai_query: Query<(&mut Transform, &mut Physics, &mut FleeAI)>,
     player_pos: Res<PlayerPosition>,
-    level: Res<Level>,
+    spatial_grid: Res<SpatialGrid>,
     mut gizmos: Gizmos,
     gizmos_visible: Res<GizmosVisible>,
     time: Res<Time>,
+    mut cache: Local<SystemCache>,
 )
 ```
 
+**Note**: Uses `SpatialGrid` for efficient raycasting and `SystemCache` for LOS caching.
+
 ### Execution Flow
 
-1. **LOS Check**: Raycast from AI to player through all polygons
-2. **Blend Calculation**:
-   - No LOS: `blend = (blend + delta_time).min(1.0)` (gradual wander)
-   - LOS: `blend = ((distance - min_dist) / (max_dist - min_dist)).max(0.0)`
+1. **LOS Check**: Raycast from AI to player using spatial grid (cached for performance)
+2. **Blend Calculation** (with edge case handling):
+   - No LOS: `blend = (blend + delta_time.min(0.1)).min(1.0)` (gradual wander, clamped for lag spikes)
+   - LOS: `blend = ((distance - min_dist) / (max_dist - min_dist)).clamp(0.0, 1.0)`
+   - Handles zero distance (player at exact AI position) and beyond detection range
 3. **Color Update**: `color = Color::srgb(1.0 - blend, blend, 0.0)` (red→orange→green)
-4. **Direction Calculation**:
-   - Flee direction: `-(player_pos - ai_pos).normalize()`
-   - Wander direction: `get_wander_dir(...)`
+4. **Direction Calculation** (with edge case handling):
+   - Flee direction: `-(player_pos - ai_pos).normalize()` (fallback if zero distance)
+   - Wander direction: `get_wander_dir(...)` (handles zero velocity)
    - Blended direction: `flee_dir.lerp(wander_dir, blend)`
 5. **Directional Weighting**: Calculate 16-direction weights via dot product
-6. **Obstruction Check**: Test each direction (sorted by weight) for collisions
-7. **Steering**: Apply steering behavior with blended max speed
-8. **Movement**: Update velocity and position
+6. **Obstruction Check**: Test each direction (sorted by weight) using spatial grid
+7. **Fallback Handling**: If all directions blocked, use blended direction (collision system handles penetration)
+8. **Steering**: Apply steering behavior with blended max speed
+9. **Movement**: Update velocity and position
+10. **Collision Prep**: Set `prev_position` for collision system
 
-### Constants
+### Configuration Constants
 
-```rust
-const WANDER_MAX_SPEED: f32 = 3.0;
-const FLEE_MAX_SPEED: f32 = 5.0;
-pub const STEERING_SCALE: f32 = 0.1;
+All AI parameters are centralized in `config.rs`:
 
-// Distance thresholds (in s_flee_ai_movement):
-let max_distance = 400.0;  // Beyond this, always wander
-let min_distance = 200.0;  // Closer than this, always flee
-```
+**Speed Parameters**:
+- `WANDER_MAX_SPEED: f32 = 3.0` - Maximum speed when wandering
+- `FLEE_MAX_SPEED: f32 = 5.0` - Maximum speed when fleeing
+- `STEERING_SCALE: f32 = 0.1` - Steering force scale for smooth acceleration
+
+**Detection Parameters**:
+- `AI_MAX_DETECTION_DISTANCE: f32 = 400.0` - Maximum detection range
+- `AI_MIN_FLEE_DISTANCE: f32 = 200.0` - Minimum distance for pure flee behavior
+
+**Obstruction Detection**:
+- `AI_RAYCAST_DISTANCE: f32 = 100.0` - Raycast distance for direction checks
+
+**Wandering Behavior**:
+- `AI_WANDER_RADIUS: f32 = 50.0` - Radius of wander circle
+- `AI_WANDER_DISPLACE_RANGE: f32 = 0.3` - Maximum angle displacement per frame
+
+**Visualization**:
+- `AI_VISUALIZATION_RADIUS: f32 = 30.0` - Debug visualization circle radius
+- `AI_RENDER_RADIUS: f32 = 8.0` - AI entity render size
+- `AI_DEBUG_CIRCLE_SIZE: f32 = 5.0` - Debug circle size
+
+**Performance**:
+- `LOS_CACHE_THRESHOLD: f32 = 5.0` - Distance threshold for cache invalidation
+
+See `config.rs` for detailed documentation of each parameter.
 
 ---
 
@@ -134,15 +160,21 @@ let min_distance = 200.0;  // Closer than this, always flee
 **Purpose**: Generate smooth random walk direction
 
 **Algorithm**:
-1. Project velocity vector forward (100 units)
-2. Create circle around projected point (radius 50)
-3. Select random point on circle (displaced from current wander angle)
-4. Return direction toward that point
+1. Handle zero velocity edge case (use wander angle as fallback)
+2. Project velocity vector forward (`AI_RAYCAST_DISTANCE` units)
+3. Create circle around projected point (`AI_WANDER_RADIUS` radius)
+4. Select random point on circle (displaced from current wander angle)
+5. Return normalized direction toward that point (handles zero distance)
 
 **Wander Angle Persistence**:
 - `wander_angle` persists across frames
-- Displaced by random amount each frame: `wander_angle += rng.gen_range(-0.3..0.3)`
+- Displaced by random amount each frame: `wander_angle += rng.random_range(-AI_WANDER_DISPLACE_RANGE..AI_WANDER_DISPLACE_RANGE)`
 - Creates smooth, organic movement
+
+**Edge Cases Handled**:
+- Zero velocity: Uses wander angle direction as fallback
+- Very small velocity: Normalizes safely using `normalize_or_zero()`
+- Circle center at exact position: Returns zero vector (handled by normalization)
 
 **Visualization** (when gizmos visible):
 - Red dot: Projected velocity point
@@ -200,18 +232,22 @@ impl Plugin for FleeAIPlugin {
 
 ## Performance Considerations
 
-### Raycasting Optimization
+### Spatial Partitioning
 
-The LOS check and obstruction checks perform many raycasts:
-- LOS: 1 raycast per polygon edge
-- Obstruction: 16 directions × N polygons × M edges per polygon
+The system uses `SpatialGrid` for efficient raycasting:
+- **LOS check**: Only tests edges along ray path (O(nearby_edges) instead of O(all_edges))
+- **Obstruction check**: 16 directions × O(nearby_edges_per_direction)
+- **Grid-based**: Edges partitioned into cells matching level grid size
 
-**Current Approach**: Brute force (acceptable for small levels)
-**Future Optimization**: Spatial partitioning (grid/quadtree) for large levels
+### Caching Optimizations
+
+- **LOS Cache**: Results cached and invalidated when positions change significantly
+- **Direction Vectors**: Pre-computed 16-direction vectors cached per system
+- **Direction Indices**: Pre-computed array avoids per-frame allocation
 
 ### Direction Weight Calculation
 
-16 directions tested each frame. Consider caching if performance becomes an issue.
+16 directions tested each frame with pre-computed vectors (no per-frame cos/sin calculations).
 
 ---
 
@@ -239,11 +275,13 @@ The LOS check and obstruction checks perform many raycasts:
 
 ### Modifying Flee/Wander Thresholds
 
-Edit constants in `s_flee_ai_movement`:
+Edit constants in `config.rs`:
 ```rust
-let max_distance = 400.0;  // Adjust for larger/smaller detection range
-let min_distance = 200.0;  // Adjust for flee distance
+pub const AI_MAX_DETECTION_DISTANCE: f32 = 400.0;  // Adjust for larger/smaller detection range
+pub const AI_MIN_FLEE_DISTANCE: f32 = 200.0;  // Adjust for flee distance
 ```
+
+All parameters are documented in `config.rs` with guidance on tuning.
 
 ### Changing Direction Count
 
@@ -256,13 +294,26 @@ angle += PI / 8.0;  // Change 8.0 to (count / 2.0)
 
 ---
 
+## Edge Cases Handled
+
+The implementation includes robust edge case handling:
+
+- **Zero velocity**: Uses wander angle direction as fallback in `get_wander_dir`
+- **All directions blocked**: Falls back to blended direction (collision system prevents penetration)
+- **Player at exact AI position**: Distance calculation handles zero distance gracefully
+- **Very high frame delta (lag spikes)**: Blend calculation clamps delta to 0.1 seconds
+- **Very small distances**: All normalizations use `normalize_or_zero()` to avoid NaN
+- **Zero distance in wander**: Returns zero vector safely
+
 ## Anti-Patterns to Avoid
 
 - ❌ **Forgetting to update `prev_position`**: Must be set before movement (collision system depends on it)
-- ❌ **Hardcoding raycast distances**: Use configurable constants
+- ❌ **Hardcoding parameters**: Use constants from `config.rs`
 - ❌ **Not normalizing directions**: Always `.normalize_or_zero()` before use
 - ❌ **Ignoring blend factor**: Always use blended max speed, not fixed speed
 - ❌ **Testing all directions without sorting**: Sort by weight first, then test (performance)
+- ❌ **Not handling zero velocity**: Always check `length_squared() > epsilon` before normalizing
+- ❌ **Ignoring lag spikes**: Clamp delta time in blend calculations
 
 ---
 
